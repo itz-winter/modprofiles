@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ModProfileSwitcher_Setup</AssemblyName>
+    <RootNamespace>ModProfileSwitcherInstaller</RootNamespace>
+  </PropertyGroup>
+
+  <!-- The main app exe is embedded as a resource by the build script -->
+  <ItemGroup>
+    <EmbeddedResource Include="payload\**" Condition="Exists('payload\')" />
+  </ItemGroup>
+
+  <!-- .NET Framework 4.8 needs explicit references for ZipArchive -->
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+</Project>
