@@ -1,0 +1,36 @@
+.vs/
+bin/
+obj/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.pdb
+*.mdb
+publish/
+publish/**
+installer/output/
+installer/*.exe
+installer/*.zip
+*.log
+*.cache
+*.db
+*.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+_ReSharper*/
+TestResults/
+/.idea/
+.vscode/
+docs/_site/
+
+# Rider
+.idea/
+
+# Node
+node_modules/
