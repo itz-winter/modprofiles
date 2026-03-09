@@ -30,6 +30,11 @@ namespace ModProfileSwitcher.Models
         public bool Selected { get; set; } = true;
 
         /// <summary>
+        /// Where this mod was resolved from: "modrinth" or "curseforge".
+        /// </summary>
+        public string Source { get; set; } = "modrinth";
+
+        /// <summary>
         /// True if the mod doesn't support the requested MC version/loader combo
         /// and was resolved to a different version instead.
         /// </summary>

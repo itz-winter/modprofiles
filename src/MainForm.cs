@@ -17,6 +17,7 @@ namespace ModProfileSwitcher
         private ProfilesManager _profiles;
         private ProfileSwitcher _switcher;
         private readonly ModrinthCollectionResolver _resolver = new ModrinthCollectionResolver();
+        private CurseForgeService _curseForge; // initialized when API key is available
 
         // --- Paths (defaults, configurable via Settings) ---
         private string _minecraftModsPath;
@@ -31,7 +32,8 @@ namespace ModProfileSwitcher
         private Button btnAddMod, btnRemoveMod, btnOpenModsFolder;
         private Button btnDownloadMod, btnImportCollection;
         private TextBox txtDownloadUrl;
-        private ComboBox cboLoader, cboMcVersion;
+        private ComboBox cboLoader, cboMcVersion, cboSource;
+        private Button btnSettings;
         private ProgressBar progressBar;
         private Label lblStatus;
         private TextBox txtLog;
@@ -85,6 +87,10 @@ namespace ModProfileSwitcher
         {
             _profiles = new ProfilesManager(_profilesRoot);
             _switcher = new ProfileSwitcher(_profiles, _minecraftModsPath, _backupsRoot);
+
+            // Initialize CurseForge service if API key is available
+            if (SettingsManager.HasCurseForgeApiKey)
+                _curseForge = new CurseForgeService(SettingsManager.CurseForgeApiKey);
 
             // Conflict resolver: prompt user when a resource/shader pack already exists
             _switcher.ConflictResolver = (fileName, packType) =>
@@ -159,7 +165,7 @@ namespace ModProfileSwitcher
             {
                 Text = "Download / Import",
                 Location = new Point(568, 12),
-                Size = new Size(370, 280),
+                Size = new Size(370, 300),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
 
@@ -177,13 +183,21 @@ namespace ModProfileSwitcher
             cboMcVersion.Items.Add("Loading…");
             cboMcVersion.SelectedIndex = 0;
 
-            btnDownloadMod = new Button { Text = "⬇ Download Mod", Location = new Point(8, 110), Size = new Size(150, 30) };
+            var lblSource = new Label { Text = "Source:", Location = new Point(8, 114), AutoSize = true };
+            cboSource = new ComboBox { Location = new Point(60, 111), Size = new Size(120, 23), DropDownStyle = ComboBoxStyle.DropDownList };
+            cboSource.Items.AddRange(new object[] { "Modrinth", "CurseForge" });
+            cboSource.SelectedIndex = 0;
+
+            btnSettings = new Button { Text = "⚙ Settings", Location = new Point(190, 110), Size = new Size(120, 26) };
+            btnSettings.Click += BtnSettings_Click;
+
+            btnDownloadMod = new Button { Text = "⬇ Download Mod", Location = new Point(8, 146), Size = new Size(150, 30) };
             btnDownloadMod.Click += BtnDownloadMod_Click;
 
-            btnImportCollection = new Button { Text = "📋 Paste Collection…", Location = new Point(165, 110), Size = new Size(195, 30) };
+            btnImportCollection = new Button { Text = "📋 Paste Collection…", Location = new Point(165, 146), Size = new Size(195, 30) };
             btnImportCollection.Click += BtnImportCollection_Click;
 
-            grpDownload.Controls.AddRange(new Control[] { lblUrl, txtDownloadUrl, lblLoader, cboLoader, lblVer, cboMcVersion, btnDownloadMod, btnImportCollection });
+            grpDownload.Controls.AddRange(new Control[] { lblUrl, txtDownloadUrl, lblLoader, cboLoader, lblVer, cboMcVersion, lblSource, cboSource, btnSettings, btnDownloadMod, btnImportCollection });
             Controls.Add(grpDownload);
 
             // ---- Middle panel: Active Mods in .minecraft/mods ----
@@ -958,6 +972,54 @@ namespace ModProfileSwitcher
 
         // ===================== Download single mod =====================
 
+        /// <summary>
+        /// Ensures CurseForge service is ready. Returns false if user hasn't set an API key.
+        /// </summary>
+        private bool EnsureCurseForge()
+        {
+            if (_curseForge != null) return true;
+
+            if (!SettingsManager.HasCurseForgeApiKey)
+            {
+                var result = MessageBox.Show(
+                    "CurseForge requires an API key to download mods.\n\n" +
+                    "Would you like to open Settings to enter your key?\n" +
+                    "(You can get a free key at console.curseforge.com)",
+                    "CurseForge API Key Required",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information);
+
+                if (result == DialogResult.Yes)
+                {
+                    using var dlg = new SettingsDialog();
+                    dlg.ShowDialog(this);
+                }
+
+                // Check again after dialog
+                if (!SettingsManager.HasCurseForgeApiKey)
+                    return false;
+            }
+
+            _curseForge = new CurseForgeService(SettingsManager.CurseForgeApiKey);
+            return true;
+        }
+
+        private bool IsCurseForgeSelected => cboSource.SelectedIndex == 1;
+
+        private void BtnSettings_Click(object sender, EventArgs e)
+        {
+            using var dlg = new SettingsDialog();
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                // Refresh CurseForge service with new key
+                if (SettingsManager.HasCurseForgeApiKey)
+                    _curseForge = new CurseForgeService(SettingsManager.CurseForgeApiKey);
+                else
+                    _curseForge = null;
+                Log("Settings saved.");
+            }
+        }
+
         private async void BtnDownloadMod_Click(object sender, EventArgs e)
         {
             var profile = SelectedProfileClean;
@@ -975,8 +1037,70 @@ namespace ModProfileSwitcher
 
             try
             {
-                // If it looks like a Modrinth project URL, resolve via API first
-                if (url.Contains("modrinth.com/mod/") || url.Contains("modrinth.com/plugin/"))
+                // Auto-detect source from URL
+                bool isCurseForge = IsCurseForgeSelected ||
+                    url.Contains("curseforge.com/minecraft/mc-mods/");
+                bool isModrinth = !isCurseForge &&
+                    (url.Contains("modrinth.com/mod/") || url.Contains("modrinth.com/plugin/"));
+
+                if (isCurseForge)
+                {
+                    // CurseForge download path
+                    if (!EnsureCurseForge()) { btnDownloadMod.Enabled = true; return; }
+
+                    Log($"Resolving via CurseForge…");
+                    var mod = await _curseForge.ResolveSingleAsync(url, cboMcVersion.Text, cboLoader.Text);
+                    if (mod == null || mod.NotFound)
+                    {
+                        MessageBox.Show("This mod could not be found on CurseForge.", "Not Found");
+                        return;
+                    }
+                    if (mod.VersionMismatch)
+                    {
+                        var versInfo = !string.IsNullOrEmpty(mod.ActualGameVersions)
+                            ? mod.ActualGameVersions : "unknown";
+                        var answer = MessageBox.Show(
+                            $"'{mod.ProjectTitle}' is not available for {cboMcVersion.Text} ({cboLoader.Text}).\n\n" +
+                            $"The closest version supports: {versInfo}\n" +
+                            $"File: {mod.FileName}\n\n" +
+                            "Download it anyway?",
+                            "Version Mismatch",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Warning);
+                        if (answer != DialogResult.Yes) return;
+                    }
+                    if (string.IsNullOrEmpty(mod.DownloadUrl))
+                    {
+                        MessageBox.Show(
+                            "This mod's author has disabled direct downloads via the API.\n" +
+                            "You may need to download it manually from the CurseForge website.",
+                            "Download Not Available",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                        return;
+                    }
+                    url = mod.DownloadUrl;
+                    Log($"Resolved → {mod.FileName}");
+
+                    var cfFileName = mod.FileName;
+                    if (!cfFileName.EndsWith(".jar")) cfFileName += ".jar";
+                    var cfDest = Path.Combine(destDir, cfFileName);
+
+                    var cfProgress = new Progress<double>(p =>
+                    {
+                        progressBar.Value = Math.Min(100, (int)(p * 100));
+                    });
+
+                    await Downloader.DownloadFileAsync(url, cfDest, cfProgress);
+                    progressBar.Value = 100;
+                    Log($"Downloaded → {cfFileName}");
+                    RefreshMods();
+                    RefreshActiveMods();
+                    return;
+                }
+
+                // Modrinth download path
+                if (isModrinth)
                 {
                     var resolved = await _resolver.ResolveAsync(url, cboMcVersion.Text, cboLoader.Text);
                     if (resolved.Count > 0)
@@ -1035,7 +1159,7 @@ namespace ModProfileSwitcher
             }
         }
 
-        // ===================== Import Modrinth Collection =====================
+        // ===================== Import Collection =====================
 
         private async void BtnImportCollection_Click(object sender, EventArgs e)
         {
@@ -1046,7 +1170,13 @@ namespace ModProfileSwitcher
                 ? _minecraftModsPath
                 : Path.Combine(_minecraftModsPath, profile);
 
-            using var dlg = new ImportCollectionDialog(cboMcVersion.Text, cboLoader.Text, GetLoadedVersions());
+            bool useCurseForge = IsCurseForgeSelected;
+
+            if (useCurseForge && !EnsureCurseForge())
+                return;
+
+            using var dlg = new ImportCollectionDialog(cboMcVersion.Text, cboLoader.Text, GetLoadedVersions(),
+                useCurseForge ? "CurseForge" : "Modrinth");
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
             var pastedText = dlg.PastedText;
@@ -1054,12 +1184,15 @@ namespace ModProfileSwitcher
             var loader = dlg.Loader;
 
             btnImportCollection.Enabled = false;
-            Log("Resolving Modrinth collection…");
+            Log($"Resolving {(useCurseForge ? "CurseForge" : "Modrinth")} mods…");
 
             List<ResolvedMod> resolved;
             try
             {
-                resolved = await _resolver.ResolveAsync(pastedText, mcVer, loader);
+                if (useCurseForge)
+                    resolved = await _curseForge.ResolveAsync(pastedText, mcVer, loader);
+                else
+                    resolved = await _resolver.ResolveAsync(pastedText, mcVer, loader);
             }
             catch (Exception ex)
             {

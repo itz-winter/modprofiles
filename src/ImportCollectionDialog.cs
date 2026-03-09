@@ -17,9 +17,9 @@ namespace ModProfileSwitcher
         public string McVersion => cboMcVersion.Text;
         public string Loader => cboLoader.Text;
 
-        public ImportCollectionDialog(string defaultMcVersion, string defaultLoader, List<string> mcVersions = null)
+        public ImportCollectionDialog(string defaultMcVersion, string defaultLoader, List<string> mcVersions = null, string source = "Modrinth")
         {
-            Text = "Import Modrinth Collection";
+            Text = $"Import {source} Collection";
             Size = new Size(540, 420);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -28,7 +28,9 @@ namespace ModProfileSwitcher
 
             var lblInfo = new Label
             {
-                Text = "Paste a Modrinth collection URL, project URLs (one per line),\nproject slugs, or exported JSON below:",
+                Text = source == "CurseForge"
+                    ? "Paste CurseForge mod URLs or slugs (one per line):"
+                    : "Paste a Modrinth collection URL, project URLs (one per line),\nproject slugs, or exported JSON below:",
                 Location = new Point(12, 12),
                 AutoSize = true
             };
