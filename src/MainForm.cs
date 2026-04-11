@@ -27,7 +27,7 @@ namespace ModProfileSwitcher
         // --- UI Controls ---
         private ListBox lstProfiles;
         private ListBox lstMods;
-        private Button btnNewProfile, btnDeleteProfile, btnRenameProfile;
+        private Button btnNewProfile, btnDeleteProfile, btnRenameProfile, btnDuplicateProfile;
         private Button btnApplyProfile, btnBackupRestore;
         private Button btnAddMod, btnRemoveMod, btnOpenModsFolder;
         private Button btnDownloadMod, btnImportCollection;
@@ -38,7 +38,7 @@ namespace ModProfileSwitcher
         private Label lblStatus;
         private TextBox txtLog;
         private TreeView treeActiveMods;
-        private Button btnRefreshActive, btnOpenMinecraftMods, btnImportActiveProfile;
+        private Button btnRefreshActive, btnOpenMinecraftMods, btnImportActiveProfile, btnUpdateMods, btnMigrateMods;
 
         public MainForm()
         {
@@ -124,11 +124,13 @@ namespace ModProfileSwitcher
             lstProfiles = new ListBox { Location = new Point(8, 24), Size = new Size(204, 180), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom };
             lstProfiles.SelectedIndexChanged += (s, e) => RefreshMods();
 
-            btnNewProfile = MakeButton("New", new Point(8, 210), grpProfiles);
+            btnNewProfile = new Button { Text = "New", Location = new Point(8, 210), Size = new Size(48, 26) };
             btnNewProfile.Click += BtnNewProfile_Click;
-            btnRenameProfile = MakeButton("Rename", new Point(78, 210), grpProfiles);
+            btnRenameProfile = new Button { Text = "Rename", Location = new Point(58, 210), Size = new Size(48, 26) };
             btnRenameProfile.Click += BtnRenameProfile_Click;
-            btnDeleteProfile = MakeButton("Delete", new Point(148, 210), grpProfiles);
+            btnDuplicateProfile = new Button { Text = "Copy", Location = new Point(108, 210), Size = new Size(48, 26) };
+            btnDuplicateProfile.Click += BtnDuplicateProfile_Click;
+            btnDeleteProfile = new Button { Text = "Delete", Location = new Point(158, 210), Size = new Size(48, 26) };
             btnDeleteProfile.Click += BtnDeleteProfile_Click;
 
             btnApplyProfile = new Button { Text = "▶ Switch To", Location = new Point(8, 242), Size = new Size(130, 28), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
@@ -136,7 +138,7 @@ namespace ModProfileSwitcher
             btnBackupRestore = new Button { Text = "⏸ Deactivate", Location = new Point(142, 242), Size = new Size(70, 28), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnBackupRestore.Click += BtnRestore_Click;
 
-            grpProfiles.Controls.AddRange(new Control[] { lstProfiles, btnNewProfile, btnRenameProfile, btnDeleteProfile, btnApplyProfile, btnBackupRestore });
+            grpProfiles.Controls.AddRange(new Control[] { lstProfiles, btnNewProfile, btnRenameProfile, btnDuplicateProfile, btnDeleteProfile, btnApplyProfile, btnBackupRestore });
             Controls.Add(grpProfiles);
 
             // ---- Center panel: Mods in profile ----
@@ -252,7 +254,25 @@ namespace ModProfileSwitcher
             };
             btnImportActiveProfile.Click += BtnNameActiveProfile_Click;
 
-            grpActive.Controls.AddRange(new Control[] { treeActiveMods, btnRefreshActive, btnOpenMinecraftMods, btnImportActiveProfile });
+            btnUpdateMods = new Button
+            {
+                Text = "⬆ Update",
+                Location = new Point(836, 126),
+                Size = new Size(82, 28),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnUpdateMods.Click += BtnUpdateMods_Click;
+
+            btnMigrateMods = new Button
+            {
+                Text = "🔄 Migrate",
+                Location = new Point(836, 160),
+                Size = new Size(82, 28),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnMigrateMods.Click += BtnMigrateMods_Click;
+
+            grpActive.Controls.AddRange(new Control[] { treeActiveMods, btnRefreshActive, btnOpenMinecraftMods, btnImportActiveProfile, btnUpdateMods, btnMigrateMods });
             Controls.Add(grpActive);
 
             // ---- Bottom: progress + log ----
@@ -740,6 +760,25 @@ namespace ModProfileSwitcher
             {
                 _switcher.DeleteProfileFolder(profile);
                 Log($"Deleted profile '{profile}'.");
+                RefreshProfiles();
+                RefreshActiveMods();
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        private void BtnDuplicateProfile_Click(object sender, EventArgs e)
+        {
+            var profile = SelectedProfileClean;
+            if (profile == null) { MessageBox.Show("Select a profile to duplicate."); return; }
+
+            var newName = Prompt("Duplicate Profile", $"Name for the copy of '{profile}':", profile + " - Copy");
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            try
+            {
+                _switcher.DuplicateProfile(profile, newName);
+                var jarCount = _switcher.ListProfileJars(newName).Count;
+                Log($"Duplicated '{profile}' → '{newName}' ({jarCount} mod(s) copied).");
                 RefreshProfiles();
                 RefreshActiveMods();
             }
@@ -1241,6 +1280,319 @@ namespace ModProfileSwitcher
             RefreshMods();
             RefreshActiveMods();
             btnImportCollection.Enabled = true;
+        }
+
+        // ===================== Update Mods =====================
+
+        private async void BtnUpdateMods_Click(object sender, EventArgs e)
+        {
+            // Only works on the active profile's loose jars
+            if (_switcher.ActiveJarCount() == 0)
+            {
+                MessageBox.Show("No active mods to update.\nSwitch to a profile first.", "Update Mods");
+                return;
+            }
+
+            var source = IsCurseForgeSelected ? "curseforge" : "modrinth";
+
+            // If CurseForge, ensure API key is set
+            if (source == "curseforge" && !EnsureCurseForge())
+                return;
+
+            btnUpdateMods.Enabled = false;
+            progressBar.Value = 0;
+            Log($"Checking for updates via {source}…");
+
+            List<UpdateableMod> results;
+            try
+            {
+                var checker = new ModUpdateChecker(
+                    source == "curseforge" ? _curseForge : null);
+
+                var progress = new Progress<double>(p =>
+                {
+                    progressBar.Value = Math.Min(100, (int)(p * 100));
+                });
+
+                results = await checker.CheckForUpdatesAsync(
+                    _minecraftModsPath,
+                    source,
+                    cboMcVersion.Text,
+                    cboLoader.Text,
+                    progress);
+            }
+            catch (Exception ex)
+            {
+                Log($"Update check failed: {ex.Message}");
+                MessageBox.Show("Error checking for updates:\n" + ex.Message, "Error");
+                btnUpdateMods.Enabled = true;
+                return;
+            }
+
+            progressBar.Value = 100;
+
+            var updateCount = results.Count(r => r.HasUpdate);
+            var notFoundCount = results.Count(r => r.NotFound);
+            Log($"Scan complete: {updateCount} update(s) available, {notFoundCount} not identified.");
+
+            if (updateCount == 0)
+            {
+                MessageBox.Show(
+                    $"All {results.Count - notFoundCount} identified mods are up to date!" +
+                    (notFoundCount > 0 ? $"\n({notFoundCount} mod(s) could not be identified.)" : ""),
+                    "Update Mods",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                btnUpdateMods.Enabled = true;
+                return;
+            }
+
+            // Show selection dialog
+            using var dlg = new UpdateModsDialog(results);
+            if (dlg.ShowDialog(this) != DialogResult.OK || dlg.SelectedUpdates.Count == 0)
+            {
+                btnUpdateMods.Enabled = true;
+                return;
+            }
+
+            var toUpdate = dlg.SelectedUpdates;
+            Log($"Updating {toUpdate.Count} mod(s)…");
+            progressBar.Value = 0;
+
+            int done = 0;
+            int success = 0;
+            foreach (var mod in toUpdate)
+            {
+                try
+                {
+                    var newDest = Path.Combine(_minecraftModsPath, mod.LatestFileName);
+
+                    var progress2 = new Progress<double>(p =>
+                    {
+                        var total = (double)done / toUpdate.Count + p / toUpdate.Count;
+                        progressBar.Value = Math.Min(100, (int)(total * 100));
+                    });
+
+                    await Downloader.DownloadFileAsync(mod.LatestDownloadUrl, newDest, progress2);
+
+                    // Delete old file (if different name)
+                    if (mod.LatestFileName != mod.CurrentFileName)
+                    {
+                        var oldPath = Path.Combine(_minecraftModsPath, mod.CurrentFileName);
+                        if (File.Exists(oldPath))
+                            File.Delete(oldPath);
+                    }
+
+                    Log($"  ✓ {mod.ProjectTitle}: {mod.CurrentFileName} → {mod.LatestFileName}");
+                    success++;
+                }
+                catch (Exception ex)
+                {
+                    Log($"  ✗ {mod.ProjectTitle}: {ex.Message}");
+                }
+                done++;
+            }
+
+            progressBar.Value = 100;
+            Log($"Update complete: {success}/{toUpdate.Count} updated successfully.");
+            RefreshMods();
+            RefreshActiveMods();
+
+            MessageBox.Show(
+                $"{success} of {toUpdate.Count} mod(s) updated successfully!",
+                "Update Complete",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+
+            btnUpdateMods.Enabled = true;
+        }
+
+        // ===================== Migrate (Upgrade / Downgrade) =====================
+
+        private async void BtnMigrateMods_Click(object sender, EventArgs e)
+        {
+            if (_switcher.ActiveJarCount() == 0)
+            {
+                MessageBox.Show("No active mods to migrate.\nSwitch to a profile first.", "Migrate Mods");
+                return;
+            }
+
+            // Ask for the target MC version
+            var versions = GetLoadedVersions();
+            if (versions.Count == 0)
+            {
+                MessageBox.Show("Minecraft version list not loaded yet.\nPlease wait for versions to load.", "Migrate Mods");
+                return;
+            }
+
+            string targetVersion;
+            using (var picker = new Form
+            {
+                Text = "Migrate Mods – Select Target Version",
+                Size = new Size(380, 200),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            })
+            {
+                var lblPrompt = new Label { Text = "Choose the Minecraft version to migrate to:", Location = new Point(12, 12), AutoSize = true };
+                var cboTarget = new ComboBox { Location = new Point(12, 40), Size = new Size(340, 24), DropDownStyle = ComboBoxStyle.DropDownList };
+                foreach (var v in versions) cboTarget.Items.Add(v);
+                if (cboTarget.Items.Count > 0) cboTarget.SelectedIndex = 0;
+
+                var lblLoader = new Label { Text = "Loader:", Location = new Point(12, 72), AutoSize = true };
+                var cboTargetLoader = new ComboBox { Location = new Point(60, 70), Size = new Size(120, 24), DropDownStyle = ComboBoxStyle.DropDownList };
+                cboTargetLoader.Items.AddRange(new object[] { "fabric", "forge", "neoforge", "quilt" });
+                // Pre-select current loader
+                for (int i = 0; i < cboTargetLoader.Items.Count; i++)
+                {
+                    if (cboTargetLoader.Items[i].ToString().Equals(cboLoader.Text, StringComparison.OrdinalIgnoreCase))
+                    { cboTargetLoader.SelectedIndex = i; break; }
+                }
+                if (cboTargetLoader.SelectedIndex < 0) cboTargetLoader.SelectedIndex = 0;
+
+                var ok = new Button { Text = "Continue", DialogResult = DialogResult.OK, Location = new Point(196, 115), Size = new Size(75, 28) };
+                var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(277, 115), Size = new Size(75, 28) };
+                picker.AcceptButton = ok;
+                picker.CancelButton = cancel;
+                picker.Controls.AddRange(new Control[] { lblPrompt, cboTarget, lblLoader, cboTargetLoader, ok, cancel });
+
+                if (picker.ShowDialog(this) != DialogResult.OK) return;
+
+                targetVersion = cboTarget.Text;
+                // Update the loader combo to match what user picked for migration
+                cboLoader.Text = cboTargetLoader.Text;
+            }
+
+            if (string.IsNullOrEmpty(targetVersion))
+            {
+                MessageBox.Show("No target version selected.", "Migrate Mods");
+                return;
+            }
+
+            var source = IsCurseForgeSelected ? "curseforge" : "modrinth";
+            if (source == "curseforge" && !EnsureCurseForge()) return;
+
+            btnMigrateMods.Enabled = false;
+            progressBar.Value = 0;
+            Log($"Checking migration to {targetVersion} via {source}…");
+
+            List<MigratableMod> results;
+            try
+            {
+                var svc = new VersionMigrationService(source == "curseforge" ? _curseForge : null);
+                var progress = new Progress<double>(p =>
+                {
+                    progressBar.Value = Math.Min(100, (int)(p * 100));
+                });
+
+                results = await svc.CheckMigrationAsync(
+                    _minecraftModsPath, source, targetVersion, cboLoader.Text, progress);
+            }
+            catch (Exception ex)
+            {
+                Log($"Migration check failed: {ex.Message}");
+                MessageBox.Show("Error checking migration:\n" + ex.Message, "Error");
+                btnMigrateMods.Enabled = true;
+                return;
+            }
+
+            progressBar.Value = 100;
+
+            var availCount = results.Count(r => r.Available);
+            var incompatCount = results.Count(r => r.Incompatible);
+            var notFoundCount = results.Count(r => r.NotFound);
+            Log($"Migration scan: {availCount} available, {incompatCount} incompatible, {notFoundCount} not identified.");
+
+            if (availCount == 0 && incompatCount == 0)
+            {
+                MessageBox.Show("Could not identify any mods to migrate.", "Migrate Mods");
+                btnMigrateMods.Enabled = true;
+                return;
+            }
+
+            // Show migration dialog
+            using var dlg = new VersionMigrateDialog(results, targetVersion);
+            if (dlg.ShowDialog(this) != DialogResult.OK || dlg.SelectedMods.Count == 0)
+            {
+                btnMigrateMods.Enabled = true;
+                return;
+            }
+
+            var toMigrate = dlg.SelectedMods;
+            bool keepIncompat = dlg.KeepIncompatible;
+
+            Log($"Migrating {toMigrate.Count} mod(s) to {targetVersion}…");
+            progressBar.Value = 0;
+
+            int done = 0;
+            int success = 0;
+            foreach (var mod in toMigrate)
+            {
+                try
+                {
+                    var newDest = Path.Combine(_minecraftModsPath, mod.TargetFileName);
+
+                    var progress2 = new Progress<double>(p =>
+                    {
+                        var total = (double)done / toMigrate.Count + p / toMigrate.Count;
+                        progressBar.Value = Math.Min(100, (int)(total * 100));
+                    });
+
+                    await Downloader.DownloadFileAsync(mod.TargetDownloadUrl, newDest, progress2);
+
+                    // Remove old file if filename differs
+                    if (mod.TargetFileName != mod.CurrentFileName)
+                    {
+                        var oldPath = Path.Combine(_minecraftModsPath, mod.CurrentFileName);
+                        if (File.Exists(oldPath))
+                            File.Delete(oldPath);
+                    }
+
+                    Log($"  ✓ {mod.ProjectTitle}: {mod.CurrentFileName} → {mod.TargetFileName}");
+                    success++;
+                }
+                catch (Exception ex)
+                {
+                    Log($"  ✗ {mod.ProjectTitle}: {ex.Message}");
+                }
+                done++;
+            }
+
+            // Handle incompatible mods that weren't migrated
+            if (!keepIncompat)
+            {
+                var incompatible = results.Where(r => r.Incompatible).ToList();
+                foreach (var mod in incompatible)
+                {
+                    try
+                    {
+                        var path = Path.Combine(_minecraftModsPath, mod.CurrentFileName);
+                        if (File.Exists(path))
+                        {
+                            File.Delete(path);
+                            Log($"  🗑 Removed incompatible: {mod.CurrentFileName}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"  ✗ Could not remove {mod.CurrentFileName}: {ex.Message}");
+                    }
+                }
+            }
+
+            progressBar.Value = 100;
+            Log($"Migration complete: {success}/{toMigrate.Count} migrated to {targetVersion}.");
+            RefreshMods();
+            RefreshActiveMods();
+
+            var msg = $"{success} of {toMigrate.Count} mod(s) migrated to {targetVersion}!";
+            if (incompatCount > 0)
+                msg += $"\n{incompatCount} incompatible mod(s) were {(keepIncompat ? "kept" : "removed")}.";
+
+            MessageBox.Show(msg, "Migration Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            btnMigrateMods.Enabled = true;
         }
 
         // ===================== Simple prompt dialog =====================

@@ -218,6 +218,61 @@ namespace ModProfileSwitcher.Services
         }
 
         /// <summary>
+        /// Duplicates a profile subfolder and all its contents (jars, resourcepacks, shaderpacks).
+        /// If <paramref name="sourceName"/> is the active profile, copies the current loose jars instead.
+        /// </summary>
+        public void DuplicateProfile(string sourceName, string newName)
+        {
+            if (string.IsNullOrWhiteSpace(newName))
+                throw new ArgumentException("New profile name cannot be empty.");
+
+            var destDir = Path.Combine(_minecraftModsPath, newName);
+            if (Directory.Exists(destDir))
+                throw new InvalidOperationException($"Profile folder '{newName}' already exists.");
+
+            Directory.CreateDirectory(destDir);
+
+            bool isActive = _activeProfileName == sourceName;
+
+            if (isActive)
+            {
+                // Copy loose jars from the mods root
+                foreach (var jar in GetJars(_minecraftModsPath))
+                    File.Copy(jar, Path.Combine(destDir, Path.GetFileName(jar)));
+
+                // Copy resource/shader packs from .minecraft dirs (the ones tracked for this profile)
+                // We can't know which packs belong to the active profile, so we skip pack copying
+                // for the active profile — the user can add packs later.
+            }
+            else
+            {
+                // Copy entire subfolder tree
+                var sourceDir = Path.Combine(_minecraftModsPath, sourceName);
+                if (!Directory.Exists(sourceDir))
+                    throw new InvalidOperationException($"Profile folder '{sourceName}' not found.");
+
+                CopyDirectoryRecursive(sourceDir, destDir);
+            }
+        }
+
+        /// <summary>
+        /// Recursively copies all files and subdirectories from source to destination.
+        /// </summary>
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            Directory.CreateDirectory(destDir);
+
+            foreach (var file in Directory.GetFiles(sourceDir))
+                File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)));
+
+            foreach (var subDir in Directory.GetDirectories(sourceDir))
+            {
+                var subName = Path.GetFileName(subDir);
+                CopyDirectoryRecursive(subDir, Path.Combine(destDir, subName));
+            }
+        }
+
+        /// <summary>
         /// Lists jars in a profile subfolder.
         /// </summary>
         public List<string> ListProfileJars(string profileName)
