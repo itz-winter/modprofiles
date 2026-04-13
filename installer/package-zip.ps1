@@ -53,6 +53,10 @@ New-Item -ItemType Directory -Path $stageDir | Out-Null
 Copy-Item (Join-Path $publishDir "ModProfileSwitcher.exe") $stageDir
 Copy-Item (Join-Path $root "INSTRUCTIONS.md") (Join-Path $stageDir "README.md") -ErrorAction SilentlyContinue
 
+# Bundle SVG assets
+$svgDest = Join-Path $stageDir 'svgs'
+Copy-Item (Join-Path $root 'svgs') $svgDest -Recurse -Force
+
 $zipName = "ModProfileSwitcher_v${version}_Portable.zip"
 $zipPath = Join-Path $outputDir $zipName
 

@@ -59,6 +59,9 @@ Name: "launchonstartup"; Description: "Start with Windows (minimized)"; GroupDes
 ; Main application executable (self-contained, single-file)
 Source: "..\publish\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
+; SVG icon assets
+Source: "..\svgs\*"; DestDir: "{app}\svgs"; Flags: ignoreversion
+
 ; License / readme
 Source: "..\INSTRUCTIONS.md"; DestDir: "{app}"; DestName: "README.md"; Flags: ignoreversion
 

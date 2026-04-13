@@ -47,6 +47,10 @@ Copy-Item (Join-Path $publishDir 'ModProfileSwitcher.exe') $stageDir
 Copy-Item (Join-Path $root 'LICENSE') $stageDir -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root 'README.md') $stageDir -ErrorAction SilentlyContinue
 
+# Bundle SVG assets
+$svgDest = Join-Path $stageDir 'svgs'
+Copy-Item (Join-Path $root 'svgs') $svgDest -Recurse -Force
+
 Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $payloadZip -Force
 Remove-Item $stageDir -Recurse -Force
 

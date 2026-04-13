@@ -39,6 +39,7 @@ namespace ModProfileSwitcher
         private TextBox txtLog;
         private TreeView treeActiveMods;
         private Button btnRefreshActive, btnOpenMinecraftMods, btnImportActiveProfile, btnUpdateMods, btnMigrateMods;
+        private ToolTip _toolTip;
 
         public MainForm()
         {
@@ -126,12 +127,12 @@ namespace ModProfileSwitcher
 
             btnNewProfile = new Button { Text = "New", Location = new Point(8, 210), Size = new Size(48, 26) };
             btnNewProfile.Click += BtnNewProfile_Click;
-            btnRenameProfile = new Button { Text = "Rename", Location = new Point(58, 210), Size = new Size(48, 26) };
-            btnRenameProfile.Click += BtnRenameProfile_Click;
-            btnDuplicateProfile = new Button { Text = "Copy", Location = new Point(108, 210), Size = new Size(48, 26) };
-            btnDuplicateProfile.Click += BtnDuplicateProfile_Click;
-            btnDeleteProfile = new Button { Text = "Delete", Location = new Point(158, 210), Size = new Size(48, 26) };
+            btnDeleteProfile = new Button { Text = "Delete", Location = new Point(58, 210), Size = new Size(48, 26) };
             btnDeleteProfile.Click += BtnDeleteProfile_Click;
+            btnRenameProfile = new Button { Text = "Rename", Location = new Point(108, 210), Size = new Size(48, 26) };
+            btnRenameProfile.Click += BtnRenameProfile_Click;
+            btnDuplicateProfile = new Button { Text = "Copy", Location = new Point(158, 210), Size = new Size(48, 26) };
+            btnDuplicateProfile.Click += BtnDuplicateProfile_Click;
 
             btnApplyProfile = new Button { Text = "▶ Switch To", Location = new Point(8, 242), Size = new Size(130, 28), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnApplyProfile.Click += BtnApplyProfile_Click;
@@ -305,6 +306,47 @@ namespace ModProfileSwitcher
                 Font = new Font("Consolas", 8.5f)
             };
             Controls.Add(txtLog);
+
+            ApplySvgIcons();
+        }
+
+        /// <summary>
+        /// Loads SVG files from the svgs/ folder and sets them as button images.
+        /// Falls back to text if an SVG isn't found (e.g. first run before copy step).
+        /// </summary>
+        private void ApplySvgIcons()
+        {
+            _toolTip = new ToolTip { ShowAlways = true };
+
+            // Icon size for the small 48×26 profile-row buttons
+            const int sm = 14;
+            // Icon size for standard / taller buttons
+            const int md = 16;
+
+            // ---- Profiles panel ----
+            SvgIconHelper.Apply(btnNewProfile,       "plus",      sm, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnDeleteProfile,    "minus",     sm, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnRenameProfile,    "rename",    sm, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnDuplicateProfile, "duplicate", sm, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnApplyProfile,     "switch-to", md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnBackupRestore,    "deactivate", md, toolTip: _toolTip);
+
+            // ---- Mods in profile panel ----
+            SvgIconHelper.Apply(btnAddMod,        "plus",        md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnRemoveMod,     "minus",       md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnOpenModsFolder, "open-folder", md, toolTip: _toolTip);
+
+            // ---- Download / Import panel ----
+            SvgIconHelper.Apply(btnSettings,         "settings",         md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnDownloadMod,      "download",         md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnImportCollection, "paste-collection", md, toolTip: _toolTip);
+
+            // ---- Active mods panel ----
+            SvgIconHelper.Apply(btnRefreshActive,       "refresh",    md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnOpenMinecraftMods,   "open-folder", md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnImportActiveProfile, "document",   md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnUpdateMods,          "arrow-up",   md, toolTip: _toolTip);
+            SvgIconHelper.Apply(btnMigrateMods,         "migrate",    md, toolTip: _toolTip);
         }
 
         private Button MakeButton(string text, Point location, Control parent)
